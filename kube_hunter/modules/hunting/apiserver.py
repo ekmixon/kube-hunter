@@ -301,13 +301,10 @@ class AccessApiServer(Hunter):
     def get_items(self, path):
         config = get_config()
         try:
-            items = []
             r = requests.get(path, headers=self.headers, verify=False, timeout=config.network_timeout)
             if r.status_code == 200:
                 resp = json.loads(r.content)
-                for item in resp["items"]:
-                    items.append(item["metadata"]["name"])
-                return items
+                return [item["metadata"]["name"] for item in resp["items"]]
             logger.debug(f"Got HTTP {r.status_code} respone: {r.text}")
         except (requests.exceptions.ConnectionError, KeyError):
             logger.debug(f"Failed retrieving items from API server at {path}")
@@ -318,20 +315,22 @@ class AccessApiServer(Hunter):
         config = get_config()
         pods = []
         try:
-            if not namespace:
-                r = requests.get(
-                    f"{self.path}/api/v1/pods",
-                    headers=self.headers,
-                    verify=False,
-                    timeout=config.network_timeout,
-                )
-            else:
-                r = requests.get(
+            r = (
+                requests.get(
                     f"{self.path}/api/v1/namespaces/{namespace}/pods",
                     headers=self.headers,
                     verify=False,
                     timeout=config.network_timeout,
                 )
+                if namespace
+                else requests.get(
+                    f"{self.path}/api/v1/pods",
+                    headers=self.headers,
+                    verify=False,
+                    timeout=config.network_timeout,
+                )
+            )
+
             if r.status_code == 200:
                 resp = json.loads(r.content)
                 for item in resp["items"]:
@@ -344,8 +343,7 @@ class AccessApiServer(Hunter):
         return None
 
     def execute(self):
-        api = self.access_api_server()
-        if api:
+        if api := self.access_api_server():
             if self.event.protocol == "http":
                 self.publish_event(ServerApiHTTPAccess(api))
             else:
@@ -355,16 +353,17 @@ class AccessApiServer(Hunter):
         if namespaces:
             self.publish_event(ListNamespaces(namespaces, self.with_token))
 
-        roles = self.get_items(f"{self.path}/apis/rbac.authorization.k8s.io/v1/roles")
-        if roles:
+        if roles := self.get_items(
+            f"{self.path}/apis/rbac.authorization.k8s.io/v1/roles"
+        ):
             self.publish_event(ListRoles(roles, self.with_token))
 
-        cluster_roles = self.get_items(f"{self.path}/apis/rbac.authorization.k8s.io/v1/clusterroles")
-        if cluster_roles:
+        if cluster_roles := self.get_items(
+            f"{self.path}/apis/rbac.authorization.k8s.io/v1/clusterroles"
+        ):
             self.publish_event(ListClusterRoles(cluster_roles, self.with_token))
 
-        pods = self.get_pods()
-        if pods:
+        if pods := self.get_pods():
             self.publish_event(ListPodsAndNamespaces(pods, self.with_token))
 
         # If we have a service account token, this event should get triggered twice - once with and once without
@@ -444,7 +443,7 @@ class AccessApiServerActive(ActiveHunter):
 
     def create_a_pod(self, namespace, is_privileged):
         privileged_value = {"securityContext": {"privileged": True}} if is_privileged else {}
-        random_name = str(uuid.uuid4())[0:5]
+        random_name = str(uuid.uuid4())[:5]
         pod = {
             "apiVersion": "v1",
             "kind": "Pod",
@@ -471,7 +470,7 @@ class AccessApiServerActive(ActiveHunter):
         )
 
     def create_namespace(self):
-        random_name = (str(uuid.uuid4()))[0:5]
+        random_name = (str(uuid.uuid4()))[:5]
         data = {
             "kind": "Namespace",
             "apiVersion": "v1",
@@ -486,7 +485,7 @@ class AccessApiServerActive(ActiveHunter):
         return delete_timestamp
 
     def create_a_role(self, namespace):
-        name = str(uuid.uuid4())[0:5]
+        name = str(uuid.uuid4())[:5]
         role = {
             "kind": "Role",
             "apiVersion": "rbac.authorization.k8s.io/v1",
@@ -499,7 +498,7 @@ class AccessApiServerActive(ActiveHunter):
         )
 
     def create_a_cluster_role(self):
-        name = str(uuid.uuid4())[0:5]
+        name = str(uuid.uuid4())[:5]
         cluster_role = {
             "kind": "ClusterRole",
             "apiVersion": "rbac.authorization.k8s.io/v1",
@@ -540,66 +539,51 @@ class AccessApiServerActive(ActiveHunter):
         )
 
     def execute(self):
-        # Try creating cluster-wide objects
-        namespace = self.create_namespace()
-        if namespace:
+        if namespace := self.create_namespace():
             self.publish_event(CreateANamespace(f"new namespace name: {namespace}"))
-            delete_timestamp = self.delete_namespace(namespace)
-            if delete_timestamp:
+            if delete_timestamp := self.delete_namespace(namespace):
                 self.publish_event(DeleteANamespace(delete_timestamp))
 
-        cluster_role = self.create_a_cluster_role()
-        if cluster_role:
+        if cluster_role := self.create_a_cluster_role():
             self.publish_event(CreateAClusterRole(f"Cluster role name: {cluster_role}"))
 
-            patch_evidence = self.patch_a_cluster_role(cluster_role)
-            if patch_evidence:
+            if patch_evidence := self.patch_a_cluster_role(cluster_role):
                 self.publish_event(
                     PatchAClusterRole(f"Patched Cluster Role Name: {cluster_role}  Patch evidence: {patch_evidence}")
                 )
 
-            delete_timestamp = self.delete_a_cluster_role(cluster_role)
-            if delete_timestamp:
+            if delete_timestamp := self.delete_a_cluster_role(cluster_role):
                 self.publish_event(DeleteAClusterRole(f"Cluster role {cluster_role} deletion time {delete_timestamp}"))
 
         #  Try attacking all the namespaces we know about
         if self.event.namespaces:
             for namespace in self.event.namespaces:
-                # Try creating and deleting a privileged pod
-                pod_name = self.create_a_pod(namespace, True)
-                if pod_name:
+                if pod_name := self.create_a_pod(namespace, True):
                     self.publish_event(CreateAPrivilegedPod(f"Pod Name: {pod_name} Namespace: {namespace}"))
-                    delete_time = self.delete_a_pod(namespace, pod_name)
-                    if delete_time:
+                    if delete_time := self.delete_a_pod(namespace, pod_name):
                         self.publish_event(DeleteAPod(f"Pod Name: {pod_name} Deletion time: {delete_time}"))
 
-                # Try creating, patching and deleting an unprivileged pod
-                pod_name = self.create_a_pod(namespace, False)
-                if pod_name:
+                if pod_name := self.create_a_pod(namespace, False):
                     self.publish_event(CreateAPod(f"Pod Name: {pod_name} Namespace: {namespace}"))
 
-                    patch_evidence = self.patch_a_pod(namespace, pod_name)
-                    if patch_evidence:
+                    if patch_evidence := self.patch_a_pod(namespace, pod_name):
                         self.publish_event(
                             PatchAPod(
                                 f"Pod Name: {pod_name} " f"Namespace: {namespace} " f"Patch evidence: {patch_evidence}"
                             )
                         )
 
-                    delete_time = self.delete_a_pod(namespace, pod_name)
-                    if delete_time:
+                    if delete_time := self.delete_a_pod(namespace, pod_name):
                         self.publish_event(
                             DeleteAPod(
                                 f"Pod Name: {pod_name} " f"Namespace: {namespace} " f"Delete time: {delete_time}"
                             )
                         )
 
-                role = self.create_a_role(namespace)
-                if role:
+                if role := self.create_a_role(namespace):
                     self.publish_event(CreateARole(f"Role name: {role}"))
 
-                    patch_evidence = self.patch_a_role(namespace, role)
-                    if patch_evidence:
+                    if patch_evidence := self.patch_a_role(namespace, role):
                         self.publish_event(
                             PatchARole(
                                 f"Patched Role Name: {role} "
@@ -608,8 +592,7 @@ class AccessApiServerActive(ActiveHunter):
                             )
                         )
 
-                    delete_time = self.delete_a_role(namespace, role)
-                    if delete_time:
+                    if delete_time := self.delete_a_role(namespace, role):
                         self.publish_event(
                             DeleteARole(
                                 f"Deleted role: {role} " f"Namespace: {namespace} " f"Delete time: {delete_time}"

@@ -65,7 +65,5 @@ class ArpSpoofHunter(ActiveHunter):
         )
 
         # arp enabled on cluster and more than one pod on node
-        if len(arp_responses) > 1:
-            # L3 plugin not installed
-            if not self.detect_l3_on_host(arp_responses):
-                self.publish_event(PossibleArpSpoofing())
+        if len(arp_responses) > 1 and not self.detect_l3_on_host(arp_responses):
+            self.publish_event(PossibleArpSpoofing())

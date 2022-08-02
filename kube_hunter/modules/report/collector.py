@@ -15,9 +15,9 @@ from kube_hunter.core.events.types import (
 logger = logging.getLogger(__name__)
 
 services_lock = threading.Lock()
-services = list()
+services = []
 vulnerabilities_lock = threading.Lock()
-vulnerabilities = list()
+vulnerabilities = []
 hunters = handler.all_hunters
 
 

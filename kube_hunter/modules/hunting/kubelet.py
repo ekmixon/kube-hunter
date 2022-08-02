@@ -265,10 +265,13 @@ class ReadOnlyKubeletPortHunter(Hunter):
         privileged_containers = []
         if self.pods_endpoint_data:
             for pod in self.pods_endpoint_data["items"]:
-                for container in pod["spec"]["containers"]:
-                    if container.get("securityContext", {}).get("privileged"):
-                        privileged_containers.append((pod["metadata"]["name"], container["name"]))
-        return privileged_containers if len(privileged_containers) > 0 else None
+                privileged_containers.extend(
+                    (pod["metadata"]["name"], container["name"])
+                    for container in pod["spec"]["containers"]
+                    if container.get("securityContext", {}).get("privileged")
+                )
+
+        return privileged_containers or None
 
     def get_pods_endpoint(self):
         config = get_config()
@@ -309,8 +312,8 @@ class SecureKubeletPortHunter(Hunter):
         """all methods will return the handler name if successful"""
 
         def __init__(self, path, pod, session=None):
-            self.path = path + ("/" if not path.endswith("/") else "")
-            self.session = session if session else requests.Session()
+            self.path = path + ("" if path.endswith("/") else "/")
+            self.session = session or requests.Session()
             self.pod = pod
 
         # outputs logs from a specific container
@@ -470,12 +473,9 @@ class SecureKubeletPortHunter(Hunter):
         if pod:
             debug_handlers = self.DebugHandlers(self.path, pod, self.session)
             try:
-                # TODO: use named expressions, introduced in python3.8
-                running_pods = debug_handlers.test_running_pods()
-                if running_pods:
+                if running_pods := debug_handlers.test_running_pods():
                     self.publish_event(ExposedRunningPodsHandler(count=len(running_pods["items"])))
-                cmdline = debug_handlers.test_pprof_cmdline()
-                if cmdline:
+                if cmdline := debug_handlers.test_pprof_cmdline():
                     self.publish_event(ExposedKubeletCmdline(cmdline=cmdline))
                 if debug_handlers.test_container_logs():
                     self.publish_event(ExposedContainerLogsHandler())
@@ -494,27 +494,28 @@ class SecureKubeletPortHunter(Hunter):
 
     # trying to get a pod from default namespace, if doesn't exist, gets a kube-system one
     def get_random_pod(self):
-        if self.pods_endpoint_data:
-            pods_data = self.pods_endpoint_data["items"]
+        if not self.pods_endpoint_data:
+            return
+        pods_data = self.pods_endpoint_data["items"]
 
-            def is_default_pod(pod):
-                return pod["metadata"]["namespace"] == "default" and pod["status"]["phase"] == "Running"
+        def is_default_pod(pod):
+            return pod["metadata"]["namespace"] == "default" and pod["status"]["phase"] == "Running"
 
-            def is_kubesystem_pod(pod):
-                return pod["metadata"]["namespace"] == "kube-system" and pod["status"]["phase"] == "Running"
+        def is_kubesystem_pod(pod):
+            return pod["metadata"]["namespace"] == "kube-system" and pod["status"]["phase"] == "Running"
 
-            pod_data = next(filter(is_default_pod, pods_data), None)
-            if not pod_data:
-                pod_data = next(filter(is_kubesystem_pod, pods_data), None)
+        pod_data = next(filter(is_default_pod, pods_data), None)
+        if not pod_data:
+            pod_data = next(filter(is_kubesystem_pod, pods_data), None)
 
-            if pod_data:
-                container_data = pod_data["spec"]["containers"][0]
-                if container_data:
-                    return {
-                        "name": pod_data["metadata"]["name"],
-                        "container": container_data["name"],
-                        "namespace": pod_data["metadata"]["namespace"],
-                    }
+        if pod_data:
+            container_data = pod_data["spec"]["containers"][0]
+            if container_data:
+                return {
+                    "name": pod_data["metadata"]["name"],
+                    "container": container_data["name"],
+                    "namespace": pod_data["metadata"]["namespace"],
+                }
 
 
 """ Active Hunters """
@@ -534,24 +535,27 @@ class ProveAnonymousAuth(ActiveHunter):
     def get_request(self, url, verify=False):
         config = get_config()
         try:
-            response_text = self.event.session.get(url=url, verify=verify, timeout=config.network_timeout).text.rstrip()
+            return self.event.session.get(
+                url=url, verify=verify, timeout=config.network_timeout
+            ).text.rstrip()
 
-            return response_text
         except Exception as ex:
-            logging.debug("Exception: " + str(ex))
-            return "Exception: " + str(ex)
+            logging.debug(f"Exception: {str(ex)}")
+            return f"Exception: {str(ex)}"
 
     def post_request(self, url, params, verify=False):
         config = get_config()
         try:
-            response_text = self.event.session.post(
-                url=url, verify=verify, params=params, timeout=config.network_timeout
+            return self.event.session.post(
+                url=url,
+                verify=verify,
+                params=params,
+                timeout=config.network_timeout,
             ).text.rstrip()
 
-            return response_text
         except Exception as ex:
-            logging.debug("Exception: " + str(ex))
-            return "Exception: " + str(ex)
+            logging.debug(f"Exception: {str(ex)}")
+            return f"Exception: {str(ex)}"
 
     @staticmethod
     def has_no_exception(result):
@@ -561,7 +565,7 @@ class ProveAnonymousAuth(ActiveHunter):
     def has_no_error(result):
         possible_errors = ["exited with", "Operation not permitted", "Permission denied", "No such file or directory"]
 
-        return not any(error in result for error in possible_errors)
+        return all(error not in result for error in possible_errors)
 
     @staticmethod
     def has_no_error_nor_exception(result):
@@ -596,7 +600,7 @@ class ProveAnonymousAuth(ActiveHunter):
             pods_data = json.loads(pods_raw)["items"]
 
             temp_message = ""
-            exposed_existing_privileged_containers = list()
+            exposed_existing_privileged_containers = []
 
             for pod_data in pods_data:
                 pod_namespace = pod_data["metadata"]["namespace"]
@@ -605,7 +609,8 @@ class ProveAnonymousAuth(ActiveHunter):
                 for container_data in pod_data["spec"]["containers"]:
                     container_name = container_data["name"]
 
-                    run_request_url = self.base_url + f"run/{pod_namespace}/{pod_id}/{container_name}"
+                    run_request_url = f"{self.base_url}run/{pod_namespace}/{pod_id}/{container_name}"
+
 
                     extracted_data = self.process_container(run_request_url)
 
@@ -641,7 +646,8 @@ class ProveAnonymousAuth(ActiveHunter):
                             )
 
             if temp_message:
-                message = "The following containers have been successfully breached." + temp_message
+                message = f"The following containers have been successfully breached.{temp_message}"
+
 
                 self.event.evidence = f"{message}"
 
@@ -672,14 +678,13 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
     def post_request(self, url, params, verify=False):
         config = get_config()
         try:
-            response_text = self.event.session.post(
+            return self.event.session.post(
                 url, verify, params=params, timeout=config.network_timeout
             ).text.rstrip()
 
-            return response_text
         except Exception as ex:
-            logging.debug("Exception: " + str(ex))
-            return "Exception: " + str(ex)
+            logging.debug(f"Exception: {str(ex)}")
+            return f"Exception: {str(ex)}"
 
     def cat_command(self, run_request_url, full_file_path):
         return self.post_request(run_request_url, {"cmd": f"cat {full_file_path}"})
@@ -737,8 +742,11 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
                 if first_check and not second_check:
                     return True
 
-        pod_id = run_request_url.replace(self.base_url + "run/", "").split("/")[1]
-        container_name = run_request_url.replace(self.base_url + "run/", "").split("/")[2]
+        pod_id = run_request_url.replace(f"{self.base_url}run/", "").split("/")[1]
+        container_name = run_request_url.replace(f"{self.base_url}run/", "").split(
+            "/"
+        )[2]
+
         logger.warning(
             "kube-hunter: "
             + "POD="
@@ -762,7 +770,7 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
         self, run_request_url, directory_created, number_of_rm_attempts, seconds_to_wait_for_os_command, file_name=None
     ):
         if file_name is None:
-            file_name = "kube-hunter" + str(uuid.uuid1())
+            file_name = f"kube-hunter{str(uuid.uuid1())}"
 
         file_name_with_path = f"{directory_created}/etc/cron.daily/{file_name}"
 
@@ -803,8 +811,11 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
                 if first_check and not second_check:
                     return True
 
-        pod_id = run_request_url.replace(self.base_url + "run/", "").split("/")[1]
-        container_name = run_request_url.replace(self.base_url + "run/", "").split("/")[2]
+        pod_id = run_request_url.replace(f"{self.base_url}run/", "").split("/")[1]
+        container_name = run_request_url.replace(f"{self.base_url}run/", "").split(
+            "/"
+        )[2]
+
         logger.warning(
             "kube-hunter: "
             + "POD="
@@ -849,8 +860,11 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
                 if first_check and second_check:
                     return True
 
-        pod_id = run_request_url.replace(self.base_url + "run/", "").split("/")[1]
-        container_name = run_request_url.replace(self.base_url + "run/", "").split("/")[2]
+        pod_id = run_request_url.replace(f"{self.base_url}run/", "").split("/")[1]
+        container_name = run_request_url.replace(f"{self.base_url}run/", "").split(
+            "/"
+        )[2]
+
         logger.warning(
             "kube-hunter: "
             + "POD="
@@ -888,16 +902,14 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
                 if split[0] == "root":
                     if len(split) > 2:
                         # Potential valid scenario: root=LABEL=example
-                        root_value_type = split[1] + "="
+                        root_value_type = f"{split[1]}="
                         root_value = split[2]
 
-                        return root_value, root_value_type
                     else:
                         root_value_type = ""
                         root_value = split[1]
 
-                        return root_value, root_value_type
-
+                    return root_value, root_value_type
         return None, None
 
     def process_exposed_existing_privileged_container(
@@ -909,56 +921,58 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
         directory_to_create=None,
     ):
         if directory_to_create is None:
-            directory_to_create = "/kube-hunter_" + str(uuid.uuid1())
+            directory_to_create = f"/kube-hunter_{str(uuid.uuid1())}"
 
         # /proc/cmdline - This file shows the parameters passed to the kernel at the time it is started.
         command_line = self.cat_command(run_request_url, "/proc/cmdline")
 
-        if ProveAnonymousAuth.has_no_error_nor_exception(command_line):
-            if len(command_line.split(" ")) > 0:
-                root_value, root_value_type = self.get_root_values(command_line)
+        if (
+            ProveAnonymousAuth.has_no_error_nor_exception(command_line)
+            and len(command_line.split(" ")) > 0
+        ):
+            root_value, root_value_type = self.get_root_values(command_line)
 
-                # Move forward only when the "root" variable value was actually defined.
-                if root_value:
-                    if root_value_type:
-                        file_system_or_partition = self.findfs_command(run_request_url, root_value_type, root_value)
-                    else:
-                        file_system_or_partition = root_value
+            # Move forward only when the "root" variable value was actually defined.
+            if root_value:
+                if root_value_type:
+                    file_system_or_partition = self.findfs_command(run_request_url, root_value_type, root_value)
+                else:
+                    file_system_or_partition = root_value
 
-                    if ProveAnonymousAuth.has_no_error_nor_exception(file_system_or_partition):
-                        directory_created = self.mkdir_command(run_request_url, directory_to_create)
+                if ProveAnonymousAuth.has_no_error_nor_exception(file_system_or_partition):
+                    directory_created = self.mkdir_command(run_request_url, directory_to_create)
 
-                        if ProveAnonymousAuth.has_no_error_nor_exception(directory_created):
-                            directory_created = directory_to_create
+                    if ProveAnonymousAuth.has_no_error_nor_exception(directory_created):
+                        directory_created = directory_to_create
 
-                            mounted_file_system_or_partition = self.mount_command(
-                                run_request_url, file_system_or_partition, directory_created
-                            )
+                        mounted_file_system_or_partition = self.mount_command(
+                            run_request_url, file_system_or_partition, directory_created
+                        )
 
-                            if ProveAnonymousAuth.has_no_error_nor_exception(mounted_file_system_or_partition):
-                                host_name = self.cat_command(run_request_url, f"{directory_created}/etc/hostname")
+                        if ProveAnonymousAuth.has_no_error_nor_exception(mounted_file_system_or_partition):
+                            host_name = self.cat_command(run_request_url, f"{directory_created}/etc/hostname")
 
-                                if ProveAnonymousAuth.has_no_error_nor_exception(host_name):
-                                    return {
-                                        "result": True,
-                                        "file_system_or_partition": file_system_or_partition,
-                                        "directory_created": directory_created,
-                                    }
+                            if ProveAnonymousAuth.has_no_error_nor_exception(host_name):
+                                return {
+                                    "result": True,
+                                    "file_system_or_partition": file_system_or_partition,
+                                    "directory_created": directory_created,
+                                }
 
-                                self.umount_command(
-                                    run_request_url,
-                                    file_system_or_partition,
-                                    directory_created,
-                                    number_of_umount_attempts,
-                                    seconds_to_wait_for_os_command,
-                                )
-
-                            self.rmdir_command(
+                            self.umount_command(
                                 run_request_url,
+                                file_system_or_partition,
                                 directory_created,
-                                number_of_rmdir_attempts,
+                                number_of_umount_attempts,
                                 seconds_to_wait_for_os_command,
                             )
+
+                        self.rmdir_command(
+                            run_request_url,
+                            directory_created,
+                            number_of_rmdir_attempts,
+                            seconds_to_wait_for_os_command,
+                        )
 
         return {"result": False}
 
@@ -970,7 +984,10 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
             pod_id = exposed_existing_privileged_containers["pod_id"]
             container_name = exposed_existing_privileged_containers["container_name"]
 
-            run_request_url = self.base_url + f"run/{pod_namespace}/{pod_id}/{container_name}"
+            run_request_url = (
+                f"{self.base_url}run/{pod_namespace}/{pod_id}/{container_name}"
+            )
+
 
             is_exposed_existing_privileged_container_privileged = self.process_exposed_existing_privileged_container(
                 run_request_url,
@@ -1009,9 +1026,8 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
                         self.seconds_to_wait_for_os_command,
                     )
 
-                    temp_message += "\n\nPod namespace: {}\n\nPod ID: {}\n\nContainer name: {}".format(
-                        pod_namespace, pod_id, container_name
-                    )
+                    temp_message += f"\n\nPod namespace: {pod_namespace}\n\nPod ID: {pod_id}\n\nContainer name: {container_name}"
+
 
         if temp_message:
             message = (
@@ -1020,7 +1036,6 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
                 + temp_message
             )
 
-            self.event.evidence = f"{message}"
         else:
             message = (
                 "The following exposed existing privileged containers"
@@ -1029,7 +1044,8 @@ class MaliciousIntentViaSecureKubeletPort(ActiveHunter):
                 + temp_message
             )
 
-            self.event.evidence = f"{message}"
+
+        self.event.evidence = f"{message}"
 
 
 @handler.subscribe(ExposedRunHandler)
@@ -1059,15 +1075,15 @@ class ProveRunHandler(ActiveHunter):
     def execute(self):
         config = get_config()
         r = self.event.session.get(
-            f"{self.base_path}/" + KubeletHandlers.PODS.value,
+            f"{self.base_path}/{KubeletHandlers.PODS.value}",
             verify=False,
             timeout=config.network_timeout,
         )
+
         if "items" in r.text:
             pods_data = r.json()["items"]
             for pod_data in pods_data:
-                container_data = pod_data["spec"]["containers"][0]
-                if container_data:
+                if container_data := pod_data["spec"]["containers"][0]:
                     output = self.run(
                         "uname -a",
                         container={
@@ -1077,7 +1093,7 @@ class ProveRunHandler(ActiveHunter):
                         },
                     )
                     if output and "exited with" not in output:
-                        self.event.evidence = "uname -a: " + output
+                        self.event.evidence = f"uname -a: {output}"
                         break
 
 
@@ -1102,8 +1118,7 @@ class ProveContainerLogsHandler(ActiveHunter):
         if "items" in pods_raw:
             pods_data = json.loads(pods_raw)["items"]
             for pod_data in pods_data:
-                container_data = pod_data["spec"]["containers"][0]
-                if container_data:
+                if container_data := pod_data["spec"]["containers"][0]:
                     container_name = container_data["name"]
                     output = requests.get(
                         f"{self.base_url}/"
@@ -1142,9 +1157,11 @@ class ProveSystemLogs(ActiveHunter):
         if audit_logs.status_code == requests.status_codes.codes.OK:
             logger.debug(f"Audit log of host {self.event.host}: {audit_logs.text[:10]}")
             # iterating over proctitles and converting them into readable strings
-            proctitles = []
-            for proctitle in re.findall(r"proctitle=(\w+)", audit_logs.text):
-                proctitles.append(bytes.fromhex(proctitle).decode("utf-8").replace("\x00", " "))
+            proctitles = [
+                bytes.fromhex(proctitle).decode("utf-8").replace("\x00", " ")
+                for proctitle in re.findall(r"proctitle=(\w+)", audit_logs.text)
+            ]
+
             self.event.proctitles = proctitles
             self.event.evidence = f"audit log: {proctitles}"
         else:

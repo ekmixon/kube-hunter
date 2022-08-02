@@ -42,9 +42,10 @@ def parser_add_arguments(parser):
         "--remote",
         nargs="+",
         metavar="HOST",
-        default=list(),
+        default=[],
         help="One or more remote ip/dns to hunt",
     )
+
 
     parser.add_argument(
         "--k8s-auto-discover-nodes",

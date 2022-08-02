@@ -13,7 +13,7 @@ FULL_KB_LINK = "https://avd.aquasec.com/kube-hunter/{vid}/"
 
 class BaseReporter:
     def get_nodes(self):
-        nodes = list()
+        nodes = []
         node_locations = set()
         with services_lock:
             for service in services:

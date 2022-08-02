@@ -28,22 +28,22 @@ def test_AzureSpnHunter():
         e.pods = json.loads(pod_template.format(p))["items"]
         h = AzureSpnHunter(e)
         c = h.get_key_container()
-        assert c == None
+        assert c is None
 
     pod_no_volume_mounts = '{"items":[ {"apiVersion":"v1","kind":"Pod","metadata":{"name":"etc","namespace":"default"},"spec":{"containers":[{"command":["sleep","99999"],"image":"ubuntu","name":"test"}],"volumes":[{"hostPath":{"path":"/whatever"},"name":"v"}]}} ]}'
     e.pods = json.loads(pod_no_volume_mounts)["items"]
     h = AzureSpnHunter(e)
     c = h.get_key_container()
-    assert c == None
+    assert c is None
 
     pod_no_volumes = '{"items":[ {"apiVersion":"v1","kind":"Pod","metadata":{"name":"etc","namespace":"default"},"spec":{"containers":[{"command":["sleep","99999"],"image":"ubuntu","name":"test"}]}} ]}'
     e.pods = json.loads(pod_no_volumes)["items"]
     h = AzureSpnHunter(e)
     c = h.get_key_container()
-    assert c == None
+    assert c is None
 
     pod_other_volume = '{"items":[ {"apiVersion":"v1","kind":"Pod","metadata":{"name":"etc","namespace":"default"},"spec":{"containers":[{"command":["sleep","99999"],"image":"ubuntu","name":"test","volumeMounts":[{"mountPath":"/mp","name":"v"}]}],"volumes":[{"emptyDir":{},"name":"v"}]}} ]}'
     e.pods = json.loads(pod_other_volume)["items"]
     h = AzureSpnHunter(e)
     c = h.get_key_container()
-    assert c == None
+    assert c is None

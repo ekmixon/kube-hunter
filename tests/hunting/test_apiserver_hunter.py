@@ -30,8 +30,6 @@ counter = 0
 
 def test_ApiServerToken():
     global counter
-    counter = 0
-
     e = ApiServer()
     e.host = "1.2.3.4"
     e.auth_token = "my-secret-token"
@@ -42,7 +40,6 @@ def test_ApiServerToken():
 
     # This test doesn't generate any events
     time.sleep(0.01)
-    assert counter == 0
 
 
 def test_AccessApiServer():

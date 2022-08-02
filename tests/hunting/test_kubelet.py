@@ -112,7 +112,7 @@ def post_request(url, params, expected_return_value, exception=None):
     class_being_tested_one = ProveAnonymousAuth(create_test_event_type_one())
 
     with requests_mock.Mocker(session=class_being_tested_one.event.session) as session_mock:
-        mock_params = {"text": "mock"} if not exception else {"exc": exception}
+        mock_params = {"exc": exception} if exception else {"text": "mock"}
         session_mock.post(url, **mock_params)
 
         return_value = class_being_tested_one.post_request(url, params)
@@ -122,7 +122,7 @@ def post_request(url, params, expected_return_value, exception=None):
     class_being_tested_two = MaliciousIntentViaSecureKubeletPort(create_test_event_type_two())
 
     with requests_mock.Mocker(session=class_being_tested_two.event.session) as session_mock:
-        mock_params = {"text": "mock"} if not exception else {"exc": exception}
+        mock_params = {"exc": exception} if exception else {"text": "mock"}
         session_mock.post(url, **mock_params)
 
         return_value = class_being_tested_two.post_request(url, params)
@@ -223,9 +223,10 @@ def proveanonymousauth_success(anonymous_auth_enabled_event, security_context_de
     counter = 0
 
     with requests_mock.Mocker(session=anonymous_auth_enabled_event.session) as session_mock:
-        url = "https://" + anonymous_auth_enabled_event.host + ":10250/"
-        listing_pods_url = url + "pods"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        url = f"https://{anonymous_auth_enabled_event.host}:10250/"
+        listing_pods_url = f"{url}pods"
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
 
         session_mock.get(
             listing_pods_url,
@@ -237,7 +238,7 @@ def proveanonymousauth_success(anonymous_auth_enabled_event, security_context_de
             run_url + urllib.parse.quote("cat /var/run/secrets/kubernetes.io/serviceaccount/token", safe=""),
             text=service_account_token,
         )
-        session_mock.post(run_url + "env", text=env)
+        session_mock.post(f"{run_url}env", text=env)
 
         class_being_tested = ProveAnonymousAuth(anonymous_auth_enabled_event)
         class_being_tested.execute()
@@ -259,8 +260,8 @@ def test_proveanonymousauth_connectivity_issues():
     class_being_tested = ProveAnonymousAuth(create_test_event_type_one())
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
-        url = "https://" + class_being_tested.event.host + ":10250/"
-        listing_pods_url = url + "pods"
+        url = f"https://{class_being_tested.event.host}:10250/"
+        listing_pods_url = f"{url}pods"
 
         session_mock.get(listing_pods_url, exc=requests.exceptions.ConnectionError)
 
@@ -281,12 +282,15 @@ def test_check_file_exists_existing_file():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
         session_mock.post(run_url + urllib.parse.quote("ls mock.txt", safe=""), text="mock.txt")
 
         return_value = class_being_tested.check_file_exists(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu", "mock.txt"
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            "mock.txt",
         )
+
 
         assert return_value is True
 
@@ -296,16 +300,18 @@ def test_check_file_exists_non_existent_file():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
         session_mock.post(
             run_url + urllib.parse.quote("ls nonexistentmock.txt", safe=""),
             text="ls: nonexistentmock.txt: No such file or directory",
         )
 
         return_value = class_being_tested.check_file_exists(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             "nonexistentmock.txt",
         )
+
 
         assert return_value is False
 
@@ -316,11 +322,10 @@ rm_command_removed_successfully_callback_counter = 0
 def rm_command_removed_successfully_callback(request, context):
     global rm_command_removed_successfully_callback_counter
 
-    if rm_command_removed_successfully_callback_counter == 0:
-        rm_command_removed_successfully_callback_counter += 1
-        return "mock.txt"
-    else:
+    if rm_command_removed_successfully_callback_counter != 0:
         return "ls: mock.txt: No such file or directory"
+    rm_command_removed_successfully_callback_counter += 1
+    return "mock.txt"
 
 
 def test_rm_command_removed_successfully():
@@ -328,18 +333,20 @@ def test_rm_command_removed_successfully():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
         session_mock.post(
             run_url + urllib.parse.quote("ls mock.txt", safe=""), text=rm_command_removed_successfully_callback
         )
         session_mock.post(run_url + urllib.parse.quote("rm -f mock.txt", safe=""), text="")
 
         return_value = class_being_tested.rm_command(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             "mock.txt",
             number_of_rm_attempts=1,
             seconds_to_wait_for_os_command=None,
         )
+
 
         assert return_value is True
 
@@ -349,16 +356,18 @@ def test_rm_command_removed_failed():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
         session_mock.post(run_url + urllib.parse.quote("ls mock.txt", safe=""), text="mock.txt")
         session_mock.post(run_url + urllib.parse.quote("rm -f mock.txt", safe=""), text="Permission denied")
 
         return_value = class_being_tested.rm_command(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             "mock.txt",
             number_of_rm_attempts=1,
             seconds_to_wait_for_os_command=None,
         )
+
 
         assert return_value is False
 
@@ -368,23 +377,28 @@ def test_attack_exposed_existing_privileged_container_success():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
-        directory_created = "/kube-hunter-mock_" + str(uuid.uuid1())
-        file_name = "kube-hunter-mock" + str(uuid.uuid1())
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
+        directory_created = f"/kube-hunter-mock_{str(uuid.uuid1())}"
+        file_name = f"kube-hunter-mock{str(uuid.uuid1())}"
         file_name_with_path = f"{directory_created}/etc/cron.daily/{file_name}"
 
         session_mock.post(run_url + urllib.parse.quote(f"touch {file_name_with_path}", safe=""), text="")
         session_mock.post(
-            run_url + urllib.parse.quote("chmod {} {}".format("755", file_name_with_path), safe=""), text=""
+            run_url
+            + urllib.parse.quote(f"chmod 755 {file_name_with_path}", safe=""),
+            text="",
         )
 
+
         return_value = class_being_tested.attack_exposed_existing_privileged_container(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             directory_created,
             number_of_rm_attempts,
             None,
             file_name,
         )
+
 
         assert return_value["result"] is True
 
@@ -393,23 +407,25 @@ def test_attack_exposed_existing_privileged_container_failure_when_touch():
     class_being_tested = MaliciousIntentViaSecureKubeletPort(create_test_event_type_two(), None)
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
-        directory_created = "/kube-hunter-mock_" + str(uuid.uuid1())
-        file_name = "kube-hunter-mock" + str(uuid.uuid1())
+        directory_created = f"/kube-hunter-mock_{str(uuid.uuid1())}"
+        file_name = f"kube-hunter-mock{str(uuid.uuid1())}"
         file_name_with_path = f"{directory_created}/etc/cron.daily/{file_name}"
 
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
         session_mock.post(
             run_url + urllib.parse.quote(f"touch {file_name_with_path}", safe=""),
             text="Operation not permitted",
         )
 
         return_value = class_being_tested.attack_exposed_existing_privileged_container(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             directory_created,
             None,
             file_name,
         )
+
 
         assert return_value["result"] is False
 
@@ -418,24 +434,28 @@ def test_attack_exposed_existing_privileged_container_failure_when_chmod():
     class_being_tested = MaliciousIntentViaSecureKubeletPort(create_test_event_type_two(), None)
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
-        directory_created = "/kube-hunter-mock_" + str(uuid.uuid1())
-        file_name = "kube-hunter-mock" + str(uuid.uuid1())
+        directory_created = f"/kube-hunter-mock_{str(uuid.uuid1())}"
+        file_name = f"kube-hunter-mock{str(uuid.uuid1())}"
         file_name_with_path = f"{directory_created}/etc/cron.daily/{file_name}"
 
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
         session_mock.post(run_url + urllib.parse.quote(f"touch {file_name_with_path}", safe=""), text="")
         session_mock.post(
-            run_url + urllib.parse.quote("chmod {} {}".format("755", file_name_with_path), safe=""),
+            run_url
+            + urllib.parse.quote(f"chmod 755 {file_name_with_path}", safe=""),
             text="Permission denied",
         )
 
+
         return_value = class_being_tested.attack_exposed_existing_privileged_container(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             directory_created,
             None,
             file_name,
         )
+
 
         assert return_value["result"] is False
 
@@ -445,12 +465,15 @@ def test_check_directory_exists_existing_directory():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
         session_mock.post(run_url + urllib.parse.quote("ls Mock", safe=""), text="mock.txt")
 
         return_value = class_being_tested.check_directory_exists(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu", "Mock"
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            "Mock",
         )
+
 
         assert return_value is True
 
@@ -460,12 +483,15 @@ def test_check_directory_exists_non_existent_directory():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
         session_mock.post(run_url + urllib.parse.quote("ls Mock", safe=""), text="ls: Mock: No such file or directory")
 
         return_value = class_being_tested.check_directory_exists(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu", "Mock"
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            "Mock",
         )
+
 
         assert return_value is False
 
@@ -476,11 +502,10 @@ rmdir_command_removed_successfully_callback_counter = 0
 def rmdir_command_removed_successfully_callback(request, context):
     global rmdir_command_removed_successfully_callback_counter
 
-    if rmdir_command_removed_successfully_callback_counter == 0:
-        rmdir_command_removed_successfully_callback_counter += 1
-        return "mock.txt"
-    else:
+    if rmdir_command_removed_successfully_callback_counter != 0:
         return "ls: Mock: No such file or directory"
+    rmdir_command_removed_successfully_callback_counter += 1
+    return "mock.txt"
 
 
 def test_rmdir_command_removed_successfully():
@@ -488,18 +513,20 @@ def test_rmdir_command_removed_successfully():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
         session_mock.post(
             run_url + urllib.parse.quote("ls Mock", safe=""), text=rmdir_command_removed_successfully_callback
         )
         session_mock.post(run_url + urllib.parse.quote("rmdir Mock", safe=""), text="")
 
         return_value = class_being_tested.rmdir_command(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             "Mock",
             number_of_rmdir_attempts=1,
             seconds_to_wait_for_os_command=None,
         )
+
 
         assert return_value is True
 
@@ -509,16 +536,18 @@ def test_rmdir_command_removed_failed():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
         session_mock.post(run_url + urllib.parse.quote("ls Mock", safe=""), text="mock.txt")
         session_mock.post(run_url + urllib.parse.quote("rmdir Mock", safe=""), text="Permission denied")
 
         return_value = class_being_tested.rmdir_command(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             "Mock",
             number_of_rmdir_attempts=1,
             seconds_to_wait_for_os_command=None,
         )
+
 
         assert return_value is False
 
@@ -542,26 +571,33 @@ def test_process_exposed_existing_privileged_container_success():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
-        directory_created = "/kube-hunter-mock_" + str(uuid.uuid1())
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
+        directory_created = f"/kube-hunter-mock_{str(uuid.uuid1())}"
 
         session_mock.post(run_url + urllib.parse.quote("cat /proc/cmdline", safe=""), text=cat_proc_cmdline)
         session_mock.post(run_url + urllib.parse.quote("findfs LABEL=Mock", safe=""), text="/dev/mock_fs")
         session_mock.post(run_url + urllib.parse.quote(f"mkdir {directory_created}", safe=""), text="")
         session_mock.post(
-            run_url + urllib.parse.quote("mount {} {}".format("/dev/mock_fs", directory_created), safe=""), text=""
+            run_url
+            + urllib.parse.quote(
+                f"mount /dev/mock_fs {directory_created}", safe=""
+            ),
+            text="",
         )
+
         session_mock.post(
             run_url + urllib.parse.quote(f"cat {directory_created}/etc/hostname", safe=""), text="mockhostname"
         )
 
         return_value = class_being_tested.process_exposed_existing_privileged_container(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             number_of_umount_attempts,
             number_of_rmdir_attempts,
             None,
             directory_created,
         )
+
 
         assert return_value["result"] is True
 
@@ -571,18 +607,20 @@ def test_process_exposed_existing_privileged_container_failure_when_cat_cmdline(
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
-        directory_created = "/kube-hunter-mock_" + str(uuid.uuid1())
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
+        directory_created = f"/kube-hunter-mock_{str(uuid.uuid1())}"
 
         session_mock.post(run_url + urllib.parse.quote("cat /proc/cmdline", safe=""), text="Permission denied")
 
         return_value = class_being_tested.process_exposed_existing_privileged_container(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             number_of_umount_attempts,
             number_of_rmdir_attempts,
             None,
             directory_created,
         )
+
 
         assert return_value["result"] is False
 
@@ -592,19 +630,21 @@ def test_process_exposed_existing_privileged_container_failure_when_findfs():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
-        directory_created = "/kube-hunter-mock_" + str(uuid.uuid1())
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
+        directory_created = f"/kube-hunter-mock_{str(uuid.uuid1())}"
 
         session_mock.post(run_url + urllib.parse.quote("cat /proc/cmdline", safe=""), text=cat_proc_cmdline)
         session_mock.post(run_url + urllib.parse.quote("findfs LABEL=Mock", safe=""), text="Permission denied")
 
         return_value = class_being_tested.process_exposed_existing_privileged_container(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             number_of_umount_attempts,
             number_of_rmdir_attempts,
             None,
             directory_created,
         )
+
 
         assert return_value["result"] is False
 
@@ -614,20 +654,22 @@ def test_process_exposed_existing_privileged_container_failure_when_mkdir():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
-        directory_created = "/kube-hunter-mock_" + str(uuid.uuid1())
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
+        directory_created = f"/kube-hunter-mock_{str(uuid.uuid1())}"
 
         session_mock.post(run_url + urllib.parse.quote("cat /proc/cmdline", safe=""), text=cat_proc_cmdline)
         session_mock.post(run_url + urllib.parse.quote("findfs LABEL=Mock", safe=""), text="/dev/mock_fs")
         session_mock.post(run_url + urllib.parse.quote(f"mkdir {directory_created}", safe=""), text="Permission denied")
 
         return_value = class_being_tested.process_exposed_existing_privileged_container(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             number_of_umount_attempts,
             number_of_rmdir_attempts,
             None,
             directory_created,
         )
+
 
         assert return_value["result"] is False
 
@@ -637,24 +679,30 @@ def test_process_exposed_existing_privileged_container_failure_when_mount():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
-        directory_created = "/kube-hunter-mock_" + str(uuid.uuid1())
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
+        directory_created = f"/kube-hunter-mock_{str(uuid.uuid1())}"
 
         session_mock.post(run_url + urllib.parse.quote("cat /proc/cmdline", safe=""), text=cat_proc_cmdline)
         session_mock.post(run_url + urllib.parse.quote("findfs LABEL=Mock", safe=""), text="/dev/mock_fs")
         session_mock.post(run_url + urllib.parse.quote(f"mkdir {directory_created}", safe=""), text="")
         session_mock.post(
-            run_url + urllib.parse.quote("mount {} {}".format("/dev/mock_fs", directory_created), safe=""),
+            run_url
+            + urllib.parse.quote(
+                f"mount /dev/mock_fs {directory_created}", safe=""
+            ),
             text="Permission denied",
         )
 
+
         return_value = class_being_tested.process_exposed_existing_privileged_container(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             number_of_umount_attempts,
             number_of_rmdir_attempts,
             None,
             directory_created,
         )
+
 
         assert return_value["result"] is False
 
@@ -664,27 +712,34 @@ def test_process_exposed_existing_privileged_container_failure_when_cat_hostname
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
-        directory_created = "/kube-hunter-mock_" + str(uuid.uuid1())
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
+        directory_created = f"/kube-hunter-mock_{str(uuid.uuid1())}"
 
         session_mock.post(run_url + urllib.parse.quote("cat /proc/cmdline", safe=""), text=cat_proc_cmdline)
         session_mock.post(run_url + urllib.parse.quote("findfs LABEL=Mock", safe=""), text="/dev/mock_fs")
         session_mock.post(run_url + urllib.parse.quote(f"mkdir {directory_created}", safe=""), text="")
         session_mock.post(
-            run_url + urllib.parse.quote("mount {} {}".format("/dev/mock_fs", directory_created), safe=""), text=""
+            run_url
+            + urllib.parse.quote(
+                f"mount /dev/mock_fs {directory_created}", safe=""
+            ),
+            text="",
         )
+
         session_mock.post(
             run_url + urllib.parse.quote(f"cat {directory_created}/etc/hostname", safe=""),
             text="Permission denied",
         )
 
         return_value = class_being_tested.process_exposed_existing_privileged_container(
-            url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
+            f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu",
             number_of_umount_attempts,
             number_of_rmdir_attempts,
             None,
             directory_created,
         )
+
 
         assert return_value["result"] is False
 
@@ -694,28 +749,39 @@ def test_maliciousintentviasecurekubeletport_success():
 
     with requests_mock.Mocker(session=class_being_tested.event.session) as session_mock:
         url = "https://localhost:10250/"
-        run_url = url + "run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
-        directory_created = "/kube-hunter-mock_" + str(uuid.uuid1())
-        file_name = "kube-hunter-mock" + str(uuid.uuid1())
+        run_url = f"{url}run/kube-hunter-privileged/kube-hunter-privileged-deployment-86dc79f945-sjjps/ubuntu?cmd="
+
+        directory_created = f"/kube-hunter-mock_{str(uuid.uuid1())}"
+        file_name = f"kube-hunter-mock{str(uuid.uuid1())}"
         file_name_with_path = f"{directory_created}/etc/cron.daily/{file_name}"
 
         session_mock.post(run_url + urllib.parse.quote("cat /proc/cmdline", safe=""), text=cat_proc_cmdline)
         session_mock.post(run_url + urllib.parse.quote("findfs LABEL=Mock", safe=""), text="/dev/mock_fs")
         session_mock.post(run_url + urllib.parse.quote(f"mkdir {directory_created}", safe=""), text="")
         session_mock.post(
-            run_url + urllib.parse.quote("mount {} {}".format("/dev/mock_fs", directory_created), safe=""), text=""
+            run_url
+            + urllib.parse.quote(
+                f"mount /dev/mock_fs {directory_created}", safe=""
+            ),
+            text="",
         )
+
         session_mock.post(
             run_url + urllib.parse.quote(f"cat {directory_created}/etc/hostname", safe=""), text="mockhostname"
         )
         session_mock.post(run_url + urllib.parse.quote(f"touch {file_name_with_path}", safe=""), text="")
         session_mock.post(
-            run_url + urllib.parse.quote("chmod {} {}".format("755", file_name_with_path), safe=""), text=""
+            run_url
+            + urllib.parse.quote(f"chmod 755 {file_name_with_path}", safe=""),
+            text="",
         )
+
 
         class_being_tested.execute(directory_created, file_name)
 
-        message = "The following exposed existing privileged containers have been successfully"
-        message += " abused by starting/modifying a process in the host."
+        message = (
+            "The following exposed existing privileged containers have been successfully"
+            + " abused by starting/modifying a process in the host."
+        )
 
         assert message in class_being_tested.event.evidence

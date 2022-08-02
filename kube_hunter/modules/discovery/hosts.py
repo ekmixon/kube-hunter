@@ -25,16 +25,14 @@ class RunningAsPodEvent(Event):
 
         # if service account token was manually specified, we don't load the token file
         config = get_config()
-        if config.service_account_token:
-            self.auth_token = config.service_account_token
-        else:
-            self.auth_token = self.get_service_account_file("token")
+        self.auth_token = (
+            config.service_account_token or self.get_service_account_file("token")
+        )
 
     # Event's logical location to be used mainly for reports.
     def location(self):
         location = "Local to Pod"
-        hostname = os.getenv("HOSTNAME")
-        if hostname:
+        if hostname := os.getenv("HOSTNAME"):
             location += f" ({hostname})"
 
         return location
@@ -96,8 +94,8 @@ class HostDiscoveryHelpers:
 
     @staticmethod
     def generate_hosts(cidrs):
-        ignore = list()
-        scan = list()
+        ignore = []
+        scan = []
         for cidr in cidrs:
             try:
                 if cidr.startswith("!"):
@@ -129,7 +127,7 @@ class FromPodHostDiscovery(Discovery):
             self.publish_event(HostScanEvent())
         else:
             # Discover cluster subnets, we'll scan all these hosts
-            cloud, subnets = None, list()
+            cloud, subnets = None, []
             if self.is_azure_pod():
                 subnets, cloud = self.azure_metadata_discovery()
             elif self.is_aws_pod_v1():
@@ -232,7 +230,7 @@ class FromPodHostDiscovery(Discovery):
         try:
             cidr = cidr.split("/")
             address, subnet = (cidr[0], cidr[1])
-            subnet = subnet if not config.quick else "24"
+            subnet = "24" if config.quick else subnet
             cidr = f"{address}/{subnet}"
             logger.debug(f"From pod discovered subnet {cidr}")
 
@@ -265,7 +263,7 @@ class FromPodHostDiscovery(Discovery):
 
         try:
             address, subnet = (cidr[0], cidr[1])
-            subnet = subnet if not config.quick else "24"
+            subnet = "24" if config.quick else subnet
             cidr = f"{address}/{subnet}"
             logger.debug(f"From pod discovered subnet {cidr}")
 
@@ -287,15 +285,15 @@ class FromPodHostDiscovery(Discovery):
             timeout=config.network_timeout,
         ).json()
         address, subnet = "", ""
-        subnets = list()
+        subnets = []
         for interface in machine_metadata["network"]["interface"]:
             address, subnet = (
                 interface["ipv4"]["subnet"][0]["address"],
                 interface["ipv4"]["subnet"][0]["prefix"],
             )
-            subnet = subnet if not config.quick else "24"
+            subnet = "24" if config.quick else subnet
             logger.debug(f"From pod discovered subnet {address}/{subnet}")
-            subnets.append([address, subnet if not config.quick else "24"])
+            subnets.append([address, "24" if config.quick else subnet])
 
             self.publish_event(AzureMetadataApi(cidr=f"{address}/{subnet}"))
 
@@ -336,8 +334,7 @@ class HostDiscovery(Discovery):
             for ip in [i["addr"] for i in ifaddresses(ifaceName).setdefault(AF_INET, [])]:
                 if not self.event.localhost and InterfaceTypes.LOCALHOST.value in ip.__str__():
                     continue
-                for ip in IPNetwork(f"{ip}/{sn}"):
-                    yield ip
+                yield from IPNetwork(f"{ip}/{sn}")
 
 
 # for comparing prefixes

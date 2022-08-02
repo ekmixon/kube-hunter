@@ -35,10 +35,7 @@ class PlainReporter(BaseReporter):
                 else:
                     output += "\nNo vulnerabilities were found"
                 if statistics:
-                    if hunters_len:
-                        output += self.hunters_table()
-                    else:
-                        output += "\nNo hunters were found"
+                    output += self.hunters_table() if hunters_len else "\nNo hunters were found"
         else:
             if vulnerabilities_len:
                 output += self.vulns_table()
@@ -100,7 +97,7 @@ class PlainReporter(BaseReporter):
             for vuln in vulnerabilities:
                 evidence = str(vuln.evidence)
                 if len(evidence) > EVIDENCE_PREVIEW:
-                    evidence = evidence[:EVIDENCE_PREVIEW] + "..."
+                    evidence = f"{evidence[:EVIDENCE_PREVIEW]}..."
 
                 row = [
                     vuln.get_vid(),

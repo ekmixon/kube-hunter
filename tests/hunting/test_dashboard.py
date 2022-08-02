@@ -36,6 +36,6 @@ class TestKubeDashboard:
     @staticmethod
     def test_get_nodes_invalid_result():
         expected = None
-        actual = TestKubeDashboard.get_nodes_mock(dict(), status_code=404)
+        actual = TestKubeDashboard.get_nodes_mock({}, status_code=404)
 
         assert expected == actual

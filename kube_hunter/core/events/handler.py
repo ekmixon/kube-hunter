@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 class EventQueue(Queue):
     def __init__(self, num_worker=10):
         super().__init__()
-        self.passive_hunters = dict()
-        self.active_hunters = dict()
-        self.all_hunters = dict()
+        self.passive_hunters = {}
+        self.active_hunters = {}
+        self.all_hunters = {}
 
         self.running = True
-        self.workers = list()
+        self.workers = []
 
         # -- Regular Subscription --
         # Structure: key: Event Class, value: tuple(Registered Hunter, Predicate Function)
@@ -142,10 +142,7 @@ class EventQueue(Queue):
         # sets the event's parent to be it's publisher hunter.
         self._set_event_chain(event, caller)
 
-        # applying filters on the event, before publishing it to subscribers.
-        # if filter returned None, not proceeding to publish
-        event = self.apply_filters(event)
-        if event:
+        if event := self.apply_filters(event):
             # If event was rewritten, make sure it's linked again
             self._set_event_chain(event, caller)
 
@@ -195,10 +192,10 @@ class EventQueue(Queue):
         """
         Iterates over fulfilled deps for the hunter, and fetching the latest appended events from history
         """
-        latest_events = list()
-        for event_class in self.hook_fulfilled_deps[hook].keys():
-            latest_events.append(self.hook_fulfilled_deps[hook][event_class][-1])
-        return latest_events
+        return [
+            self.hook_fulfilled_deps[hook][event_class][-1]
+            for event_class in self.hook_fulfilled_deps[hook].keys()
+        ]
 
     def _update_multi_hooks(self, hook, event):
         """
@@ -250,12 +247,12 @@ class EventQueue(Queue):
     def _register_filter(self, event, hook=None, predicate=None):
         if hook not in self.filters[event]:
             self.filters[event].append((hook, predicate))
-            logging.debug("{} filter subscribed to {}".format(hook, event))
+            logging.debug(f"{hook} filter subscribed to {event}")
 
     def _register_hook(self, event, hook=None, predicate=None):
         if hook not in self.hooks[event]:
             self.hooks[event].append((hook, predicate))
-            logging.debug("{} subscribed to {}".format(hook, event))
+            logging.debug(f"{hook} subscribed to {event}")
 
     def subscribe_event(self, event, hook=None, predicate=None, is_register=True):
         if not is_register:
@@ -307,9 +304,12 @@ class EventQueue(Queue):
 
     def _increase_vuln_count(self, event, caller):
         config = get_config()
-        if config.statistics and caller:
-            if Vulnerability in event.__class__.__mro__:
-                caller.__class__.publishedVulnerabilities += 1
+        if (
+            config.statistics
+            and caller
+            and Vulnerability in event.__class__.__mro__
+        ):
+            caller.__class__.publishedVulnerabilities += 1
 
     # executes callbacks on dedicated thread as a daemon
     def worker(self):

@@ -46,10 +46,8 @@ class DnsSpoofHunter(ActiveHunter):
 
     def extract_nameserver_ip(self):
         with open("/etc/resolv.conf") as f:
-            # finds first nameserver in /etc/resolv.conf
-            match = re.search(r"nameserver (\d+.\d+.\d+.\d+)", f.read())
-            if match:
-                return match.group(1)
+            if match := re.search(r"nameserver (\d+.\d+.\d+.\d+)", f.read()):
+                return match[1]
 
     def get_kube_dns_ip_mac(self):
         config = get_config()
@@ -79,8 +77,7 @@ class DnsSpoofHunter(ActiveHunter):
         self_ip = sr1(IP(dst="1.1.1.1", ttl=1) / ICMP(), verbose=0, timeout=config.network_timeout)[IP].dst
         cbr0_ip, cbr0_mac = self.get_cbr0_ip_mac()
 
-        kubedns = self.get_kube_dns_ip_mac()
-        if kubedns:
+        if kubedns := self.get_kube_dns_ip_mac():
             kubedns_ip, kubedns_mac = kubedns
             logger.debug(f"ip={self_ip} kubednsip={kubedns_ip} cbr0ip={cbr0_ip}")
             if kubedns_mac != cbr0_mac:

@@ -51,8 +51,7 @@ class AccessSecrets(Hunter):
         # get all files and subdirectories files:
         self.secrets_evidence = []
         for dirname, _, files in os.walk("/var/run/secrets/"):
-            for f in files:
-                self.secrets_evidence.append(os.path.join(dirname, f))
+            self.secrets_evidence.extend(os.path.join(dirname, f) for f in files)
         return len(self.secrets_evidence) > 0
 
     def execute(self):

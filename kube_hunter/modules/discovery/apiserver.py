@@ -99,10 +99,7 @@ class ApiServiceClassify(EventFilterBase):
             endpoint = f"{self.event.protocol}://{self.event.host}:{self.event.port}/version"
             versions = self.session.get(endpoint, timeout=config.network_timeout).json()
             if "major" in versions:
-                if versions.get("major") == "":
-                    self.event = MetricsServer()
-                else:
-                    self.event = ApiServer()
+                self.event = MetricsServer() if versions.get("major") == "" else ApiServer()
         except Exception:
             logging.warning("Could not access /version on API service", exc_info=True)
 

@@ -22,7 +22,7 @@ class DashboardExposed(Vulnerability, Event):
             category=AccessK8sDashboardTechnique,
             vid="KHV029",
         )
-        self.evidence = "nodes: {}".format(" ".join(nodes)) if nodes else None
+        self.evidence = f'nodes: {" ".join(nodes)}' if nodes else None
 
 
 @handler.subscribe(KubeDashboardEvent)

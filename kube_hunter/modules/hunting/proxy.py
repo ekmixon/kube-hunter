@@ -65,7 +65,7 @@ class KubeProxy(Hunter):
     def services(self):
         config = get_config()
         # map between namespaces and service names
-        services = dict()
+        services = {}
         for namespace in self.namespaces:
             resource_path = f"{self.api_url}/namespaces/{namespace}/services"
             resource_json = requests.get(resource_path, timeout=config.network_timeout).json()
@@ -75,10 +75,7 @@ class KubeProxy(Hunter):
 
     @staticmethod
     def extract_names(resource_json):
-        names = list()
-        for item in resource_json["items"]:
-            names.append(item["metadata"]["name"])
-        return names
+        return [item["metadata"]["name"] for item in resource_json["items"]]
 
 
 @handler.subscribe(KubeProxyExposed)
@@ -98,7 +95,7 @@ class ProveProxyExposed(ActiveHunter):
             timeout=config.network_timeout,
         ).json()
         if "buildDate" in version_metadata:
-            self.event.evidence = "build date: {}".format(version_metadata["buildDate"])
+            self.event.evidence = f'build date: {version_metadata["buildDate"]}'
 
 
 @handler.subscribe(KubeProxyExposed)

@@ -44,6 +44,5 @@ class KubectlClientDiscovery(Discovery):
 
     def execute(self):
         logger.debug("Attempting to discover a local kubectl client")
-        version = self.get_kubectl_binary_version()
-        if version:
+        if version := self.get_kubectl_binary_version():
             self.publish_event(KubectlClientEvent(version=version))

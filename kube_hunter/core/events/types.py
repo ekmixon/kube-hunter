@@ -63,16 +63,12 @@ class Event:
     # This is because events are composed (previous -> previous ...)
     # and not inherited
     def location(self):
-        location = None
-        if self.previous:
-            location = self.previous.location()
-
-        return location
+        return self.previous.location() if self.previous else None
 
     # returns the event history ordered from newest to oldest
     @property
     def history(self):
-        previous, history = self.previous, list()
+        previous, history = self.previous, []
         while previous:
             history.append(previous)
             previous = previous.previous
@@ -110,7 +106,7 @@ class Service:
         return self.name
 
     def get_path(self):
-        return "/" + self.path if self.path else ""
+        return f"/{self.path}" if self.path else ""
 
     def explain(self):
         return self.__doc__
@@ -225,11 +221,7 @@ class OpenPortEvent(Event):
 
     # Event's logical location to be used mainly for reports.
     def location(self):
-        if self.host:
-            location = str(self.host) + ":" + str(self.port)
-        else:
-            location = str(self.port)
-        return location
+        return f"{str(self.host)}:{str(self.port)}" if self.host else str(self.port)
 
 
 class HuntFinished(Event):

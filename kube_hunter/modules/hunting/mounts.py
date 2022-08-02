@@ -27,7 +27,9 @@ class WriteMountToVarLog(Vulnerability, Event):
             vid="KHV047",
         )
         self.pods = pods
-        self.evidence = "pods: {}".format(", ".join(pod["metadata"]["name"] for pod in self.pods))
+        self.evidence = (
+            f'pods: {", ".join((pod["metadata"]["name"] for pod in self.pods))}'
+        )
 
 
 class DirectoryTraversalWithKubelet(Vulnerability, Event):
@@ -58,17 +60,19 @@ class VarLogMountHunter(Hunter):
     def has_write_mount_to(self, pod_data, path):
         """Returns volume for correlated writable mount"""
         for volume in pod_data["spec"]["volumes"]:
-            if "hostPath" in volume:
-                if "Directory" in volume["hostPath"]["type"]:
-                    if volume["hostPath"]["path"].startswith(path):
-                        return volume
+            if (
+                "hostPath" in volume
+                and "Directory" in volume["hostPath"]["type"]
+                and volume["hostPath"]["path"].startswith(path)
+            ):
+                return volume
 
     def execute(self):
-        pe_pods = []
-        for pod in self.event.pods:
-            if self.has_write_mount_to(pod, path="/var/log"):
-                pe_pods.append(pod)
-        if pe_pods:
+        if pe_pods := [
+            pod
+            for pod in self.event.pods
+            if self.has_write_mount_to(pod, path="/var/log")
+        ]:
             self.publish_event(WriteMountToVarLog(pods=pe_pods))
 
 

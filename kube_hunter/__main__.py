@@ -56,7 +56,7 @@ def interactive_set_config():
 
     print("Choose one of the options below:")
     for i, (option, explanation) in enumerate(options):
-        print("{}. {} ({})".format(i + 1, option.ljust(20), explanation))
+        print(f"{i + 1}. {option.ljust(20)} ({explanation})")
     choice = input("Your choice: ")
     if choice == "1":
         config.remote = input("Remotes (separated by a ','): ").replace(" ", "").split(",")
@@ -98,9 +98,8 @@ def main():
             list_hunters()
             return
 
-        if not any(scan_options):
-            if not interactive_set_config():
-                return
+        if not any(scan_options) and not interactive_set_config():
+            return
 
         with hunt_started_lock:
             hunt_started = True
@@ -114,19 +113,16 @@ def main():
         handler.join()
     except KeyboardInterrupt:
         logger.debug("Kube-Hunter stopped by user")
-    # happens when running a container without interactive option
     except EOFError:
         logger.error("\033[0;31mPlease run again with -it\033[0m")
     finally:
         hunt_started_lock.acquire()
+        hunt_started_lock.release()
         if hunt_started:
-            hunt_started_lock.release()
             handler.publish_event(HuntFinished())
             handler.join()
             handler.free()
             logger.debug("Cleaned Queue")
-        else:
-            hunt_started_lock.release()
 
 
 if __name__ == "__main__":

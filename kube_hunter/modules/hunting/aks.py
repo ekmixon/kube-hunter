@@ -62,8 +62,7 @@ class AzureSpnHunter(Hunter):
                         }
 
     def execute(self):
-        container = self.get_key_container()
-        if container:
+        if container := self.get_key_container():
             evidence = f"pod: {container['pod']}, namespace: {container['namespace']}"
             self.publish_event(AzureSpnExposure(container=container, evidence=evidence))
 

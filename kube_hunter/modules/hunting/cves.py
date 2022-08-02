@@ -140,9 +140,11 @@ class CveUtils:
 
     @staticmethod
     def to_raw_version(v):
-        if not isinstance(v, version.LegacyVersion):
-            return ".".join(map(str, v._version.release))
-        return v._version
+        return (
+            v._version
+            if isinstance(v, version.LegacyVersion)
+            else ".".join(map(str, v._version.release))
+        )
 
     @staticmethod
     def version_compare(v1, v2):
@@ -187,12 +189,13 @@ class CveUtils:
                 base_fix_v = CveUtils.get_base_release(fix_v)
 
                 # if the check version and the current fix has the same base release
-                if base_check_v == base_fix_v:
-                    # when check_version is legacy, we use a custom compare func, to handle differences between versions
-                    if version_compare_func(check_v, fix_v) == -1:
-                        # determine vulnerable if smaller and with same base version
-                        vulnerable = True
-                        break
+                if (
+                    base_check_v == base_fix_v
+                    and version_compare_func(check_v, fix_v) == -1
+                ):
+                    # determine vulnerable if smaller and with same base version
+                    vulnerable = True
+                    break
 
         # if we did't find a fix in the fix releases, checking if the version is smaller that the first fix
         if not vulnerable and version_compare_func(check_v, version.parse(fix_versions[0])) == -1:
